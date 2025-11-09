@@ -11,6 +11,6 @@ venv/
 ENV/
 
 *.log
-*.txt
+!words/*.txt
 *.csv
 *.json
