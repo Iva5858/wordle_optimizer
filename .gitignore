@@ -1,0 +1,16 @@
+tests
+
+bots/entropy_wordle_optimizer.py
+
+wordle_results/screenshots/
+wordle_results/wordle_log.txt
+
+.env
+.venv
+venv/
+ENV/
+
+*.log
+*.txt
+*.csv
+*.json

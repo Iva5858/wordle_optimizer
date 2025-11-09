@@ -1,0 +1,19 @@
+# Files to ignore during Render deployment
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.env
+.venv
+venv/
+ENV/
+wordle_results/
+*.log
+.DS_Store
+
