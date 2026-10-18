@@ -7,9 +7,6 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 from bots.wordle_optimizer import WordleOptimizer, colorize_pattern
 
 class AutomatedWordle:
@@ -92,36 +89,15 @@ class AutomatedWordle:
         self.log_to_file(f"Remaining possibilities before this guess: {remaining_before}")
 
     def setup_driver(self):
-        """Initialize the Chrome WebDriver with necessary options."""
+        """Initialize a headless Chrome WebDriver (Selenium Manager fetches the matching driver)."""
         options = webdriver.ChromeOptions()
-        options.add_argument('--headless=new')  # Use new headless mode
+        options.add_argument('--headless=new')
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--window-size=1920,1080')
-        options.add_argument('--disable-gpu')
-        options.add_argument('--disable-software-rasterizer')
-        
-        # Add additional options to avoid detection
         options.add_argument('--disable-blink-features=AutomationControlled')
         options.add_experimental_option('excludeSwitches', ['enable-automation'])
-        options.add_experimental_option('useAutomationExtension', False)
-        
-        # Add user agent to avoid detection
-        options.add_argument('--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
-        
-        # Initialize Chrome with the latest driver
-        service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=options)
-        
-        # Execute CDP commands to avoid detection
-        driver.execute_cdp_cmd('Network.setUserAgentOverride', {
-            "userAgent": 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-        })
-        
-        # Execute JavaScript to avoid detection
-        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        
-        return driver
+        return webdriver.Chrome(options=options)
 
     def get_screenshot_path(self, filename):
         """Get the path for a screenshot, creating date directory if needed."""
@@ -144,54 +120,60 @@ class AutomatedWordle:
             print(f"Error taking screenshot: {e}")
             return None
 
-    def wait_for_board(self, driver):
-        """Wait for the game board to be fully loaded and visible."""
-        try:
-            # First wait for the page to be interactive
-            WebDriverWait(driver, 20).until(
-                EC.presence_of_element_located((By.TAG_NAME, 'body'))
-            )
-            
-            # Try multiple selectors for the game board
-            board_selectors = [
-                'div[class^="Board-module_board"]',
-                'div[class*="board"]',
-                'div[data-testid="board"]',
-                '#board',
-                'div.Board-module_board__'
-            ]
-            
-            for selector in board_selectors:
-                try:
-                    WebDriverWait(driver, 5).until(
-                        EC.presence_of_element_located((By.CSS_SELECTOR, selector))
-                    )
-                    print(f"Found game board with selector: {selector}")
-                    time.sleep(2)  # Additional wait for animations
-                    return True
-                except TimeoutException:
-                    continue
-            
-            # If we get here, we couldn't find the board with any selector
-            print("Could not find game board with any known selector")
-            
-            # Take a full page screenshot for debugging
-            debug_screenshot = self.get_screenshot_path("debug_page.png")
-            driver.save_screenshot(debug_screenshot)
-            print(f"Saved debug screenshot to: {debug_screenshot}")
-            
-            # Print page source for debugging
-            print("\nPage source:")
-            print(driver.page_source[:500] + "...")  # Print first 500 chars
-            
-            return False
-            
-        except TimeoutException:
-            print("Timeout waiting for game board to load")
-            return False
-        except Exception as e:
-            print(f"Error while waiting for board: {e}")
-            return False
+    def _visible(self, driver, by, selector):
+        """Return the first visible element matching the selector, or None."""
+        for el in driver.find_elements(by, selector):
+            try:
+                if el.is_displayed():
+                    return el
+            except Exception:
+                continue
+        return None
+
+    def start_game(self, driver, timeout=60):
+        """Click through whatever stands between page load and a playable board.
+
+        The NYT flow varies by region and day (cookie banner, welcome screen,
+        ad interstitial, help modal), so instead of waiting on each step in a
+        fixed order we poll and dismiss whichever obstacle is currently showing.
+        """
+        # (description, locator) pairs, checked in order on every poll
+        obstacles = [
+            ("cookie banner", (By.XPATH, "//button[normalize-space()='Accept all' or normalize-space()='Accept All']")),
+            ("terms prompt", (By.XPATH, "//button[normalize-space()='Continue']")),
+            ("play button", (By.CSS_SELECTOR, 'button[data-testid="Play"]')),
+            ("ad interstitial", (By.CSS_SELECTOR, 'button[class*="skipButton"]')),
+            ("modal", (By.CSS_SELECTOR, '[data-testid="modal-overlay"] [data-testid="icon-close"], button[aria-label="Close"]')),
+        ]
+        board_selector = 'div[class^="Board-module_board"]'
+
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            blocker = None
+            for name, (by, selector) in obstacles:
+                el = self._visible(driver, by, selector)
+                if el:
+                    blocker = name
+                    print(f"Dismissing {name}...")
+                    self.log_to_file(f"Dismissing {name}")
+                    driver.execute_script("arguments[0].click();", el)
+                    time.sleep(1)
+                    break
+
+            if not blocker and self._visible(driver, By.CSS_SELECTOR, board_selector):
+                print("Game board ready")
+                self.log_to_file("Game board ready")
+                return True
+
+            if not blocker:
+                time.sleep(0.5)
+
+        print("Timed out waiting for a playable game board")
+        self.log_to_file("Timed out waiting for a playable game board")
+        debug_screenshot = self.get_screenshot_path("debug_page.png")
+        driver.save_screenshot(debug_screenshot)
+        print(f"Saved debug screenshot to: {debug_screenshot}")
+        return False
 
     def get_pattern_from_row(self, row):
         """Extract pattern from a completed row."""
@@ -224,218 +206,6 @@ class AutomatedWordle:
             print(f"Error getting pattern from row: {e}")
             return None, None
 
-    def close_modals(self, driver):
-        """Close any modals that might appear (instructions, statistics, etc.)."""
-        try:
-            # Wait for any modal to appear
-            modal_selectors = [
-                'div[class^="Modal-module"]',
-                'div[data-testid="modal"]',
-                'div.Modal-module_modal',
-                '#modal'
-            ]
-            
-            for selector in modal_selectors:
-                try:
-                    WebDriverWait(driver, 5).until(
-                        EC.presence_of_element_located((By.CSS_SELECTOR, selector))
-                    )
-                    time.sleep(1)
-                    
-                    # Try to find and click the close button
-                    close_selectors = [
-                        'button[class^="Modal-module_closeIcon"]',
-                        'button[aria-label="Close"]',
-                        'button.Modal-module_closeIcon__TcEKb',
-                        'button[class*="close"]',
-                        'button[data-testid="close-button"]'
-                    ]
-                    
-                    for close_selector in close_selectors:
-                        try:
-                            close_button = driver.find_element(By.CSS_SELECTOR, close_selector)
-                            driver.execute_script("arguments[0].click();", close_button)
-                            time.sleep(1)
-                            return
-                        except:
-                            continue
-                            
-                    # If we can't find a close button, try pressing Escape
-                    actions = webdriver.ActionChains(driver)
-                    actions.send_keys(Keys.ESCAPE)
-                    actions.perform()
-                    time.sleep(1)
-                    
-                except TimeoutException:
-                    continue
-                    
-        except Exception as e:
-            print(f"Error closing modals: {e}")
-            pass
-
-    def verify_button_click(self, driver, button_type):
-        """Verify if a button was successfully clicked by checking for its disappearance."""
-        try:
-            time.sleep(2)  # Wait for any animations
-            if button_type == "cookie":
-                # Try to find the cookie banner or accept button
-                elements = driver.find_elements(By.CSS_SELECTOR, 
-                    'button[class*="accept"], div[class*="cookie"], div[class*="Cookie"]'
-                )
-                # If we can't find any cookie-related elements, consider it successful
-                return len(elements) == 0
-            elif button_type == "terms":
-                # Try to find the terms modal or continue button
-                elements = driver.find_elements(By.CSS_SELECTOR, 
-                    'button:contains("Continue"), div[class*="terms"], div[class*="Terms"]'
-                )
-                # If we can't find any terms-related elements, consider it successful
-                return len(elements) == 0
-            return True  # Default to success if button_type is unknown
-        except:
-            return True  # If we can't verify, assume success
-
-    def accept_cookies_and_terms(self, driver):
-        """Handle cookie consent and terms acceptance."""
-        try:
-            success = True  # Track overall success
-            
-            # Wait for and accept cookies
-            print("Looking for cookie consent button...")
-            cookie_selectors = [
-                'button.css-1qj7uk2',  # Accept all button
-                'button[data-testid="accept-all-cookies"]',
-                'button.accept-all',
-                'button[data-testid="cookie-accept"]',
-                'button.cookie-accept',
-                'button[class*="accept"]',
-                'button:contains("Accept all")'
-            ]
-            
-            cookie_clicked = False
-            for selector in cookie_selectors:
-                try:
-                    cookie_button = WebDriverWait(driver, 5).until(
-                        EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
-                    )
-                    print(f"Found cookie button with selector: {selector}")
-                    driver.execute_script("arguments[0].click();", cookie_button)
-                    cookie_clicked = True
-                    print("Successfully accepted cookies")
-                    time.sleep(2)  # Wait for any animations
-                    break
-                except:
-                    continue
-
-            # If CSS selectors fail, try finding by text
-            if not cookie_clicked:
-                try:
-                    cookie_button = driver.find_element(By.XPATH, "//button[contains(text(), 'Accept all')]")
-                    driver.execute_script("arguments[0].click();", cookie_button)
-                    cookie_clicked = True
-                    print("Successfully accepted cookies (found by text)")
-                    time.sleep(2)
-                except:
-                    print("Could not find cookie button")
-                    success = False
-
-            # Wait for and accept terms
-            print("Looking for terms acceptance button...")
-            terms_selectors = [
-                'button.css-1qj7uk2',  # Continue button
-                'button[data-testid="terms-continue"]',
-                'button.continue-button',
-                'button[class*="continue"]',
-                'button.Continue',
-                'button:contains("Continue")'
-            ]
-            
-            terms_clicked = False
-            for selector in terms_selectors:
-                try:
-                    terms_button = WebDriverWait(driver, 5).until(
-                        EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
-                    )
-                    print(f"Found terms button with selector: {selector}")
-                    driver.execute_script("arguments[0].click();", terms_button)
-                    terms_clicked = True
-                    print("Successfully accepted terms")
-                    time.sleep(2)
-                    break
-                except:
-                    continue
-
-            # If CSS selectors fail, try finding by text
-            if not terms_clicked:
-                try:
-                    terms_button = driver.find_element(By.XPATH, "//button[text()='Continue']")
-                    driver.execute_script("arguments[0].click();", terms_button)
-                    terms_clicked = True
-                    print("Successfully accepted terms (found by text)")
-                    time.sleep(2)
-                except:
-                    print("Could not find terms button")
-                    success = False
-
-
-            # Return true if either both buttons were clicked or if we couldn't find them
-            # (which might mean they weren't needed)
-            return success and (cookie_clicked or not self.verify_button_click(driver, "cookie")) and \
-                   (terms_clicked or not self.verify_button_click(driver, "terms"))
-
-        except Exception as e:
-            print(f"Error handling cookies and terms: {e}")
-            # Save debug screenshot
-            try:
-                driver.save_screenshot(self.get_screenshot_path("error_cookies_terms.png"))
-            except:
-                pass
-            return False
-
-    def click_play_button(self, driver):
-        """Find and click the play button."""
-        try:
-            print("Looking for play button...")
-            play_selectors = [
-                'Welcome-module_button__ZG0Zh'
-                'button.css-1qj7uk2',  # The play button class
-                'button.play-button',
-                'button[class*="play"]',
-                'button[class*="Play"]',
-                'button:contains("Play")',
-                'a[class*="play"]',
-                'button.css-1qj7uk2[data-testid="Play"]'  # Most specific selector
-            ]
-            
-            for selector in play_selectors:
-                try:
-                    play_button = WebDriverWait(driver, 5).until(
-                        EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
-                    )
-                    driver.execute_script("arguments[0].click();", play_button)
-                    print("Clicked play button")
-                    time.sleep(2)  # Wait for game to load
-                    return True
-                except:
-                    continue
-            
-            # If we couldn't find the button by class, try finding by text content
-            try:
-                play_button = driver.find_element(By.XPATH, "//button[text()='Play']")
-                driver.execute_script("arguments[0].click();", play_button)
-                print("Clicked play button (found by text)")
-                time.sleep(2)
-                return True
-            except:
-                pass
-            
-            print("Could not find play button")
-            return False
-
-        except Exception as e:
-            print(f"Error clicking play button: {e}")
-            return False
-
     def play_wordle(self):
         """Play today's Wordle puzzle automatically."""
         print(f"\nStarting Wordle automation at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -445,57 +215,14 @@ class AutomatedWordle:
         
         driver = self.setup_driver()
         try:
-            # Load the Wordle page
+            # Load the Wordle page and get to a playable board
             print("Loading Wordle page...")
             self.log_to_file("Loading Wordle page...")
             driver.get(self.url)
-            
-            # Wait for page to be ready
-            print("Waiting for page to be ready...")
-            self.log_to_file("Waiting for page to be ready...")
-            WebDriverWait(driver, 20).until(
-                lambda d: d.execute_script('return document.readyState') == 'complete'
-            )
-            time.sleep(3)
-            
-            # Handle cookies and terms
-            print("Handling cookies and terms...")
-            self.log_to_file("Handling cookies and terms...")
-            if not self.accept_cookies_and_terms(driver):
-                print("Failed to accept cookies and terms")
-                self.log_to_file("Failed to accept cookies and terms")
-                driver.save_screenshot(self.get_screenshot_path("failed_cookies_terms.png"))
-                print("Refreshing page and trying again...")
-                driver.refresh()
-                time.sleep(3)
-                if not self.accept_cookies_and_terms(driver):
-                    print("Failed to accept cookies and terms after retry")
-                    self.log_to_file("Failed to accept cookies and terms after retry")
-                    pass
-            
-            # Click play button
-            print("Looking for play button...")
-            self.log_to_file("Looking for play button...")
-            if not self.click_play_button(driver):
+            if not self.start_game(driver):
                 print("Failed to start the game")
                 self.log_to_file("Failed to start the game")
                 return
-            
-            # Wait for the game board to load
-            print("Waiting for game board...")
-            self.log_to_file("Waiting for game board...")
-            if not self.wait_for_board(driver):
-                print("Failed to load game board")
-                self.log_to_file("Failed to load game board")
-                return
-            
-            print("Game board loaded successfully")
-            self.log_to_file("Game board loaded successfully")
-            
-            # Close any modals
-            print("Closing modals...")
-            self.log_to_file("Closing modals...")
-            self.close_modals(driver)
             
             # Initialize game state
             guesses = []

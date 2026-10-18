@@ -2,6 +2,7 @@ import numpy as np
 from collections import defaultdict
 from typing import List, Tuple, Set, Dict
 import json
+import os
 from multiprocessing import Pool, cpu_count
 from functools import lru_cache
 import itertools
@@ -42,7 +43,8 @@ def nested_dict():
     return defaultdict(list)
 
 class WordleOptimizer:
-    def __init__(self, word_list_file: str = "words/words.txt", answers_file: str = "words/answers.txt"):
+    def __init__(self, word_list_file: str = "words/words.txt", answers_file: str = "words/answers.txt",
+                 tree_file: str = "words/salet_tree.json"):
         """Initialize the Wordle optimizer with word lists.
         
         Args:
@@ -76,6 +78,14 @@ class WordleOptimizer:
             'remaining_words': []
         }
         
+        # Precomputed optimal decision tree (see words/salet_tree.json for its source).
+        # We follow it while the game stays on it, and fall back to heuristics otherwise.
+        self.tree = None
+        if tree_file and os.path.exists(tree_file):
+            with open(tree_file, 'r') as f:
+                self.tree = json.load(f)['tree']
+        self.tree_node = self.tree
+
         # Pre-calculate letter positions for faster pattern matching
         self.letter_positions = defaultdict(nested_dict)
         for word in self.all_words:
@@ -152,9 +162,14 @@ class WordleOptimizer:
         if not self.possible_answers:
             print("WARNING: All words were filtered out!")
             print("Original words:", sorted(list(original_answers))[:10], "...")
-            # Fall back to using all_words if possible_answers becomes empty
-            self.possible_answers = self.all_words.copy()
-            print(f"Falling back to all_words: {len(self.possible_answers)} words")
+            # The answer isn't in our answer list: fall back to every valid word
+            # that is still consistent with all the feedback received so far
+            history = list(zip(self.current_game['guesses'], self.current_game['patterns'])) + [(guess, pattern)]
+            self.possible_answers = {
+                word for word in self.all_words
+                if all(self.get_pattern(g, word) == p for g, p in history)
+            }
+            print(f"Falling back to all valid words consistent with feedback: {len(self.possible_answers)} words")
 
     def calculate_entropy(self, args) -> Tuple[str, float]:
         """Calculate entropy for a single word."""
@@ -271,6 +286,12 @@ class WordleOptimizer:
         """
         print(f"\nGetting best words (attempt {self.current_guess_number})")
         print(f"Current possible answers: {len(self.possible_answers)}")
+
+        # Follow the optimal decision tree while we're still on it
+        if self.tree_node is not None:
+            word = self.tree_node if isinstance(self.tree_node, str) else self.tree_node['guess']
+            print(f"Using optimal decision tree: {word.upper()}")
+            return [(word, 0.0)]
         
         # If we're on the first guess, return the predefined best word
         if self.current_guess_number == 1:
@@ -389,16 +410,28 @@ class WordleOptimizer:
     def make_guess(self, guess: str, pattern: str) -> None:
         """Update possible answers based on a guess and its feedback pattern."""
         self.filter_words(guess, pattern)
+        self.advance_tree(guess, pattern)
         self.current_game['guesses'].append(guess)
         self.current_game['patterns'].append(pattern)
         self.current_game['remaining_words'].append(len(self.possible_answers))
         self.current_guess_number += 1
+
+    def advance_tree(self, guess: str, pattern: str) -> None:
+        """Move to the tree node for this feedback, or leave the tree if the game has gone off it."""
+        node = self.tree_node
+        if node is None or isinstance(node, str) or node['guess'] != guess:
+            self.tree_node = None
+            return
+        self.tree_node = node['map'].get(pattern)
+        if self.tree_node is None:
+            print("Feedback not in decision tree (answer may be outside the original list); using heuristics")
 
     def save_game(self, won: bool) -> None:
         """Save the current game statistics."""
         self.current_game['won'] = won
         self.current_game['num_guesses'] = len(self.current_game['guesses'])
         self.game_history.append(self.current_game)
+        self.tree_node = self.tree
         self.current_game = {
             'guesses': [],
             'patterns': [],
