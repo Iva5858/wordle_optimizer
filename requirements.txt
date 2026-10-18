@@ -1,7 +1,4 @@
-selenium>=4.11.0
-schedule>=1.2.0
-numpy>=1.24.0
-requests>=2.31.0
-pandas>=2.0.0
-fastapi>=0.104.0
-uvicorn[standard]>=0.24.0 
+numpy>=1.24
+selenium>=4.11   # 4.11+ downloads the matching chromedriver by itself
+schedule>=1.2
+pytest>=7

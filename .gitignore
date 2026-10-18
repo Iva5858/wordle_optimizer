@@ -1,16 +1,14 @@
-tests
-
-bots/entropy_wordle_optimizer.py
-
-wordle_results/screenshots/
-wordle_results/wordle_log.txt
-
-.env
-.venv
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
 venv/
-ENV/
+.env
 
-*.log
-!words/*.txt
-*.csv
-*.json
+# Generated
+.cache/
+wordle_results/
+
+# OS
+.DS_Store
