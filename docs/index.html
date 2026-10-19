@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>wordle-optimizer</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%236aaa64'/%3E%3C/svg%3E">
+<meta name="description" content="An optimal Wordle solver: 7,920 guesses over the 2,315 original answers, the proven minimum. Watch it solve any word and walk its decision tree.">
+<style>
+  :root {
+    --bg: #ffffff;
+    --ink: #111111;
+    --ink-2: #555555;
+    --ink-3: #8a8a8a;
+    --line: #e6e6e6;
+    --bar: #c9c9c9;
+    --bar-hover: #111111;
+    --tile-green: #6aaa64;
+    --tile-yellow: #c9b458;
+    --tile-gray: #787c7e;
+    --tile-empty-border: #d4d4d4;
+    --tile-ink: #ffffff;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0c0c0c;
+      --ink: #ededed;
+      --ink-2: #a3a3a3;
+      --ink-3: #6e6e6e;
+      --line: #222222;
+      --bar: #3d3d3d;
+      --bar-hover: #ededed;
+      --tile-green: #538d4e;
+      --tile-yellow: #b59f3b;
+      --tile-gray: #3a3a3c;
+      --tile-empty-border: #2e2e2e;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c0c0c;
+    --ink: #ededed;
+    --ink-2: #a3a3a3;
+    --ink-3: #6e6e6e;
+    --line: #222222;
+    --bar: #3d3d3d;
+    --bar-hover: #ededed;
+    --tile-green: #538d4e;
+    --tile-yellow: #b59f3b;
+    --tile-gray: #3a3a3c;
+    --tile-empty-border: #2e2e2e;
+  }
+  /* Wordle's own high-contrast colors, for color-blind readers */
+  :root[data-contrast="high"] { --tile-green: #f5793a; --tile-yellow: #85c0f9; }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.65 var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-decoration: underline; text-decoration-color: var(--ink-3); text-underline-offset: 3px; }
+  a:hover { text-decoration-color: var(--ink); }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 0 16px; }
+
+  header { display: flex; align-items: center; gap: 20px; padding: 28px 0 0; font: 13px var(--mono); }
+  header .name { font-weight: 600; text-decoration: none; white-space: nowrap; }
+  header nav { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 18px; align-items: center; }
+  header nav a { text-decoration: none; color: var(--ink-2); white-space: nowrap; }
+  header nav a:hover { color: var(--ink); }
+  .toggle { font: 13px var(--mono); color: var(--ink-3); background: none; border: 0; padding: 0; cursor: pointer; }
+  .toggle:hover, .toggle[aria-pressed="true"] { color: var(--ink); }
+
+  .intro { padding: 72px 0 44px; }
+  .intro p { font-size: 17px; max-width: 600px; margin: 0 0 14px; color: var(--ink-2); }
+  .intro p:first-child { color: var(--ink); }
+  .facts {
+    display: grid; grid-template-columns: repeat(4, auto); justify-content: start; gap: 16px 44px;
+    margin: 36px 0 0; font: 12px var(--mono);
+  }
+  .facts div { display: flex; flex-direction: column-reverse; gap: 2px; }
+  .facts dt { color: var(--ink-3); }
+  .facts dd { margin: 0; font-size: 20px; color: var(--ink); font-variant-numeric: tabular-nums; }
+  @media (max-width: 560px) { .facts { grid-template-columns: repeat(2, auto); } }
+
+  section { border-top: 1px solid var(--line); padding: 40px 0 8px; }
+  .label { font: 12px var(--mono); color: var(--ink-3); margin: 0 0 6px; }
+  h2 { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 8px; }
+  .note { color: var(--ink-2); max-width: 600px; margin: 0 0 28px; }
+
+  /* tiles */
+  .row { display: grid; grid-template-columns: repeat(5, var(--t, 46px)); gap: 4px; }
+  .tile {
+    width: var(--t, 46px); height: var(--t, 46px); display: grid; place-items: center;
+    font: 700 calc(var(--t, 46px) * 0.48) var(--sans); text-transform: uppercase;
+    border: 2px solid var(--tile-empty-border); color: var(--ink); user-select: none;
+  }
+  .tile.filled { border-color: var(--ink-3); }
+  .tile[data-c] { color: var(--tile-ink); }
+  .tile[data-c="2"] { background: var(--tile-green); border-color: var(--tile-green); }
+  .tile[data-c="1"] { background: var(--tile-yellow); border-color: var(--tile-yellow); }
+  .tile[data-c="0"] { background: var(--tile-gray); border-color: var(--tile-gray); }
+  .tile.flip { animation: flip 0.45s ease; }
+  @keyframes flip { 50% { transform: rotateX(90deg); } }
+  @media (prefers-reduced-motion: reduce) { .tile.flip { animation: none; } }
+  .mini { --t: 10px; gap: 2px; }
+  .mini .tile { border: 0; font-size: 0; }
+  .mini .tile:not([data-c]) { background: var(--tile-empty-border); }
+
+  /* play */
+  .play { display: grid; grid-template-columns: auto 1fr; gap: 40px; align-items: start; }
+  @media (max-width: 620px) { .play { grid-template-columns: 1fr; gap: 28px; } }
+  .board { display: grid; gap: 4px; }
+  form.ctl { display: flex; align-items: center; gap: 16px; font: 13px var(--mono); margin-bottom: 6px; }
+  form.ctl input {
+    font: 600 15px var(--mono); letter-spacing: 0.2em; text-transform: uppercase; width: 112px;
+    background: none; color: var(--ink); border: 0; border-bottom: 1px solid var(--ink-3); padding: 4px 0; border-radius: 0;
+  }
+  form.ctl input:focus { outline: none; border-bottom-color: var(--ink); }
+  .link-btn {
+    font: 13px var(--mono); color: var(--ink); background: none; border: 0; padding: 0; cursor: pointer;
+    text-decoration: underline; text-decoration-color: var(--ink-3); text-underline-offset: 3px;
+  }
+  .link-btn:hover { text-decoration-color: var(--ink); }
+  .error { font: 12px var(--mono); color: var(--ink-2); min-height: 20px; margin-bottom: 12px; }
+  .log { list-style: none; margin: 0; padding: 0; font: 13px/1.5 var(--mono); }
+  .log li {
+    display: grid; grid-template-columns: 16px 56px 62px 1fr; gap: 10px; align-items: center;
+    padding: 8px 0; border-bottom: 1px solid var(--line);
+  }
+  .log .n { color: var(--ink-3); }
+  .log .w { font-weight: 600; letter-spacing: 0.06em; }
+  .log .c { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .log .c b, .log .left b { color: var(--ink); font-weight: 600; }
+  .log .left { grid-column: 2 / -1; color: var(--ink-3); font-size: 12px; word-spacing: 4px; }
+  .follow { font: 12px var(--mono); margin-top: 14px; }
+
+  /* tree and bar lists */
+  .path { font: 13px var(--mono); display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-bottom: 18px; }
+  .path button {
+    font: inherit; color: var(--ink-2); background: none; border: 0; padding: 0; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .path button:hover { color: var(--ink); }
+  .path button[aria-current] { color: var(--ink); cursor: default; }
+  .path .sep { color: var(--ink-3); }
+  .kv { display: flex; flex-wrap: wrap; gap: 4px 28px; font: 12px var(--mono); color: var(--ink-3); margin-bottom: 18px; }
+  .kv b { color: var(--ink); font-weight: 600; font-size: 15px; margin-left: 6px; }
+  .bar-row {
+    display: grid; grid-template-columns: 64px 1fr 44px; gap: 14px; align-items: center; width: 100%;
+    font: 12px var(--mono); color: var(--ink-2); background: none; border: 0; padding: 5px 0; text-align: left; cursor: pointer;
+  }
+  .bar-row[disabled] { cursor: default; color: var(--ink-2); }
+  .bar-row:not([disabled]):hover, .bar-row:not([disabled]):focus-visible { color: var(--ink); outline: none; }
+  .bar-row:not([disabled]):hover .fill, .bar-row:not([disabled]):focus-visible .fill { background: var(--bar-hover); }
+  .track { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .fill { height: 6px; min-width: 2px; width: calc(var(--w) * 64%); background: var(--bar); flex-shrink: 0; }
+  .txt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+  @media (max-width: 520px) { .fill { width: calc(var(--w) * 46%); } .bar-row { gap: 10px; } }
+  .more { margin: 14px 0 0; }
+  #dist .bar-row { grid-template-columns: 76px 1fr 44px; }
+
+  /* results */
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 44px; }
+  @media (max-width: 620px) { .grid2 { grid-template-columns: 1fr; gap: 36px; } }
+  h3 { font: 600 13px var(--mono); margin: 0 0 12px; }
+  table { border-collapse: collapse; width: 100%; font: 13px var(--mono); font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  th { color: var(--ink-3); font-weight: 400; }
+  td { color: var(--ink-2); }
+  td + td, th + th { padding-left: 12px; }
+  .r { text-align: right; }
+  tr.best td { color: var(--ink); font-weight: 600; }
+  .after { font: 12px/1.6 var(--mono); color: var(--ink-3); margin: 14px 0 0; max-width: 600px; }
+
+  /* method */
+  pre {
+    font: 13px/1.6 var(--mono); border-left: 2px solid var(--line); padding: 4px 0 4px 16px; margin: 0 0 24px;
+    overflow-x: auto; color: var(--ink);
+  }
+  .points { margin: 0; padding: 0; list-style: none; max-width: 600px; }
+  .points li { padding: 12px 0; border-bottom: 1px solid var(--line); color: var(--ink-2); }
+  .points li:last-child { border-bottom: 0; }
+  .points b { color: var(--ink); font-weight: 600; }
+
+  footer {
+    border-top: 1px solid var(--line); margin-top: 48px; padding: 24px 0 56px;
+    font: 12px var(--mono); color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 8px 24px;
+  }
+  footer a { color: var(--ink-2); }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <a class="name" href="#">wordle-optimizer</a>
+  <nav aria-label="Links">
+    <a href="https://github.com/Iva5858/wordle_optimizer">source ↗</a>
+    <a href="https://github.com/Iva5858">@Iva5858 ↗</a>
+    <button class="toggle" id="contrast" aria-pressed="false" title="Color-blind friendly tile colors">cb</button>
+    <button class="toggle" id="theme" title="Switch light / dark">theme</button>
+  </nav>
+</header>
+
+<div class="intro">
+  <p>An optimal Wordle solver. It finds the strategy that needs the fewest guesses across all 2,315
+    original answers: 7,920 in total, the proven minimum, and never more than five.</p>
+  <p>Tied for first on the <a href="https://freshman.dev/wordle/leaderboard">Wordle bot leaderboard</a>.
+    A second bot plays the real NYT puzzle every day.</p>
+  <dl class="facts">
+    <div><dt>avg guesses</dt><dd>3.4212</dd></div>
+    <div><dt>max guesses</dt><dd>5</dd></div>
+    <div><dt>opener</dt><dd>SALET</dd></div>
+    <div><dt>compute time</dt><dd>~7s</dd></div>
+  </dl>
+</div>
+
+<section id="play">
+  <p class="label">01 / play</p>
+  <h2>Watch it solve</h2>
+  <p class="note">Pick an answer. Each guess splits the words that are still possible by the colors they would get,
+    and the colors it actually gets leave one of those groups.</p>
+  <div class="play">
+    <div class="board" id="board" aria-label="Game board"></div>
+    <div>
+      <form class="ctl" id="play-form">
+        <label class="sr-only" for="word">Answer</label>
+        <input id="word" maxlength="5" autocomplete="off" spellcheck="false" placeholder="adorn" aria-describedby="word-error">
+        <button class="link-btn" type="submit">solve</button>
+        <button class="link-btn" type="button" id="random">random</button>
+      </form>
+      <div class="error" id="word-error" role="alert"></div>
+      <ol class="log" id="log" aria-live="polite"></ol>
+      <p class="follow" id="follow" hidden><a href="#tree" id="follow-link">follow this game in the tree ↓</a></p>
+    </div>
+  </div>
+</section>
+
+<section id="tree">
+  <p class="label">02 / tree</p>
+  <h2>The decision tree</h2>
+  <p class="note">The strategy is a tree: a guess, then a next guess for every color pattern that can come back.
+    Each bar is one pattern and how many answers it leaves. Click a bar to go down.</p>
+  <nav class="path" id="path" aria-label="Path through the tree"></nav>
+  <div class="kv" id="kv"></div>
+  <div id="bars"><span class="after">loading…</span></div>
+  <p class="more"><button class="link-btn" id="more" hidden></button></p>
+</section>
+
+<section id="results">
+  <p class="label">03 / results</p>
+  <h2>Results</h2>
+  <p class="note">All 2,315 original answers, played through the strategy.</p>
+  <div class="grid2">
+    <div>
+      <h3>guesses per answer</h3>
+      <div id="dist"></div>
+      <p class="after">7,920 in total, the proven minimum</p>
+    </div>
+    <div>
+      <h3>opening word</h3>
+      <table>
+        <thead><tr><th>opener</th><th class="r">total</th><th class="r">avg</th></tr></thead>
+        <tbody>
+          <tr class="best"><td>SALET</td><td class="r">7,920</td><td class="r">3.4212</td></tr>
+          <tr><td>SOARE</td><td class="r">7,997</td><td class="r">3.4544</td></tr>
+          <tr><td>ROATE</td><td class="r">8,000</td><td class="r">3.4557</td></tr>
+          <tr><td>RAINE</td><td class="r">8,003</td><td class="r">3.4570</td></tr>
+          <tr><td>RAISE</td><td class="r">8,015</td><td class="r">3.4622</td></tr>
+          <tr><td>ARISE</td><td class="r">8,043</td><td class="r">3.4743</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <h3 style="margin-top:44px">daily bot</h3>
+  <table>
+    <thead><tr><th>played against</th><th class="r">games</th><th class="r">avg</th><th class="r">losses</th></tr></thead>
+    <tbody>
+      <tr><td>every real NYT answer, through Oct 2026</td><td class="r">1,920</td><td class="r">3.4526</td><td class="r">0</td></tr>
+      <tr><td>every word NYT accepts</td><td class="r">14,855</td><td class="r">4.3904</td><td class="r">3</td></tr>
+    </tbody>
+  </table>
+  <p class="after">The daily bot also covers answers NYT added after the original list, and only plays guesses that
+    still guarantee a win for every word NYT could pick. Its 3 losses are JILLS, VILLS and ZILLS.</p>
+</section>
+
+<section id="method">
+  <p class="label">04 / method</p>
+  <h2>How it works</h2>
+  <p class="note">For a set of possible answers S, a guess g costs one guess per answer, plus whatever each color
+    group it leaves needs next. The solver minimizes that over the whole tree.</p>
+  <pre>cost(S, g) = |S| + Σ cost(B)    for each color group B that g doesn't solve</pre>
+  <ul class="points">
+    <li><b>Branch and bound over an AND-OR tree.</b> Minimum over guesses, sum over color patterns.
+      Each subset of answers is solved once and memoized.</li>
+    <li><b>Pruning.</b> A group of n answers needs at least 2n − 1 guesses, so a guess is dropped as soon as it
+      can't beat the best one found.</li>
+    <li><b>Beam.</b> Guesses are tried in order of how small the groups they leave are. An exact mode tries all of
+      them, which proves the minimum.</li>
+    <li><b>Speed.</b> Feedback for every guess against every answer is precomputed with numpy, and the subtrees
+      under the opener run on every core.</li>
+  </ul>
+  <p class="after">The minimum of 7,920 was proven by Bertsimas &amp; Paskov,
+    <a href="https://doi.org/10.1287/opre.2022.0434">An Exact Solution to Wordle</a> (Operations Research, 2025).</p>
+</section>
+
+<footer>
+  <span>Isaac Vélez Aguirre</span>
+  <a href="https://github.com/Iva5858">github.com/Iva5858</a>
+  <a href="https://github.com/Iva5858/wordle_optimizer">source</a>
+  <span>MIT</span>
+</footer>
+
+</div>
+
+<script>
+"use strict";
+
+const DISTRIBUTION = { 2: 78, 3: 1225, 4: 971, 5: 41 };
+const ALL_GREEN = "22222";
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const $ = (id) => document.getElementById(id);
+
+let answers = [];
+let answerSet = new Set();
+let tree = null;
+
+// Wordle feedback, same rules as wordle/feedback.py
+function feedback(guess, answer) {
+  const unmatched = {};
+  for (let i = 0; i < 5; i++) {
+    if (guess[i] !== answer[i]) unmatched[answer[i]] = (unmatched[answer[i]] || 0) + 1;
+  }
+  let out = "";
+  for (let i = 0; i < 5; i++) {
+    if (guess[i] === answer[i]) out += "2";
+    else if (unmatched[guess[i]]) { out += "1"; unmatched[guess[i]]--; }
+    else out += "0";
+  }
+  return out;
+}
+const guessAt = (node) => (typeof node === "string" ? node : node.guess);
+const fmt = (n) => n.toLocaleString("en-US");
+
+function groupBy(guess, words) {
+  const groups = new Map();
+  for (const w of words) {
+    const p = feedback(guess, w);
+    if (!groups.has(p)) groups.set(p, []);
+    groups.get(p).push(w);
+  }
+  return groups;
+}
+
+function tileRow(word = "", pattern = "", cls = "") {
+  const row = document.createElement("div");
+  row.className = "row " + cls;
+  for (let i = 0; i < 5; i++) {
+    const t = document.createElement("div");
+    t.className = "tile";
+    if (word[i]) { t.textContent = word[i]; t.classList.add("filled"); }
+    if (pattern[i]) t.dataset.c = pattern[i];
+    row.appendChild(t);
+  }
+  return row;
+}
+function mini(pattern) {
+  const row = tileRow("", pattern, "mini");
+  row.setAttribute("aria-label", "pattern " + pattern);
+  return row;
+}
+
+// ---- play -------------------------------------------------------------------------------
+function playGame(answer) {
+  const steps = [];
+  let node = tree;
+  let possible = answers;
+  while (node) {
+    const guess = guessAt(node);
+    const pattern = feedback(guess, answer);
+    const left = possible.filter((w) => feedback(guess, w) === pattern);
+    steps.push({ guess, pattern, before: possible.length, left });
+    if (pattern === ALL_GREEN) break;
+    node = typeof node === "string" ? null : node.map[pattern];
+    possible = left;
+  }
+  return steps;
+}
+
+function emptyBoard() {
+  const board = $("board");
+  board.innerHTML = "";
+  for (let r = 0; r < 6; r++) board.appendChild(tileRow());
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, reducedMotion ? 0 : ms));
+let playToken = 0;
+let lastPath = [];
+
+async function animateGame(answer, share) {
+  const token = ++playToken;
+  const steps = playGame(answer);
+  lastPath = steps.filter((s) => s.pattern !== ALL_GREEN).map(({ guess, pattern }) => ({ guess, pattern }));
+  emptyBoard();
+  $("log").innerHTML = "";
+  $("follow").hidden = true;
+  if (share) history.replaceState(null, "", "#play=" + answer);
+  const rows = $("board").children;
+
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i];
+    const tiles = rows[i].children;
+    for (let j = 0; j < 5; j++) {
+      if (token !== playToken) return;
+      tiles[j].textContent = s.guess[j];
+      tiles[j].classList.add("filled");
+      await sleep(60);
+    }
+    for (let j = 0; j < 5; j++) {
+      if (token !== playToken) return;
+      const t = tiles[j];
+      t.classList.add("flip");
+      setTimeout(() => (t.dataset.c = s.pattern[j]), reducedMotion ? 0 : 220);
+      await sleep(160);
+    }
+    await sleep(280);
+    if (token !== playToken) return;
+    $("log").appendChild(logLine(i + 1, s, answer));
+  }
+  $("follow").hidden = lastPath.length === 0;
+}
+
+function logLine(n, s, answer) {
+  const li = document.createElement("li");
+  const solved = s.pattern === ALL_GREEN;
+  li.innerHTML = `<span class="n">${n}</span><span class="w">${s.guess.toUpperCase()}</span>`;
+  li.appendChild(mini(s.pattern));
+  const c = document.createElement("span");
+  c.className = "c";
+  c.innerHTML = solved ? "<b>solved</b>" : `${fmt(s.before)} → <b>${fmt(s.left.length)}</b> possible`;
+  li.appendChild(c);
+  if (!solved && s.left.length <= 10) {
+    const left = document.createElement("span");
+    left.className = "left";
+    left.innerHTML = s.left.map((w) => (w === answer ? `<b>${w}</b>` : w)).join(" ");
+    li.appendChild(left);
+  }
+  return li;
+}
+
+function startGame(word, share = true) {
+  word = (word || "").trim().toLowerCase();
+  if (!/^[a-z]{5}$/.test(word)) { $("word-error").textContent = "five letters, please"; return; }
+  if (!answerSet.has(word)) { $("word-error").textContent = `${word} isn't one of the 2,315 original answers`; return; }
+  $("word-error").textContent = "";
+  $("word").value = word;
+  animateGame(word, share);
+}
+
+// ---- bar lists --------------------------------------------------------------------------
+function barRow(label, share, text, count, onClick) {
+  const row = document.createElement("button");
+  row.type = "button";
+  row.className = "bar-row";
+  if (typeof label === "string") {
+    const l = document.createElement("span");
+    l.textContent = label;
+    row.appendChild(l);
+  } else {
+    row.appendChild(label);
+  }
+  const track = document.createElement("span");
+  track.className = "track";
+  track.innerHTML = `<span class="fill" style="--w:${share}"></span><span class="txt">${text}</span>`;
+  row.appendChild(track);
+  const num = document.createElement("span");
+  num.className = "num";
+  num.textContent = fmt(count);
+  row.appendChild(num);
+  if (onClick) row.addEventListener("click", onClick);
+  else row.disabled = true;
+  return row;
+}
+
+// ---- tree -------------------------------------------------------------------------------
+let path = [];
+let showAll = false;
+const PAGE = 20;
+
+function current() {
+  let node = tree;
+  let words = answers;
+  for (const step of path) {
+    words = words.filter((w) => feedback(step.guess, w) === step.pattern);
+    node = node.map[step.pattern];
+  }
+  return { node, words };
+}
+
+function renderTree() {
+  const { node, words } = current();
+  const guess = guessAt(node);
+
+  const nav = $("path");
+  nav.innerHTML = "";
+  const crumb = (label, depth, pattern) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.append(label);
+    if (pattern) b.appendChild(mini(pattern));
+    if (depth === path.length) b.setAttribute("aria-current", "step");
+    else b.addEventListener("click", () => { path = path.slice(0, depth); showAll = false; renderTree(); });
+    nav.appendChild(b);
+  };
+  crumb("root", 0);
+  path.forEach((step, i) => {
+    const s = document.createElement("span");
+    s.className = "sep";
+    s.textContent = "/";
+    nav.appendChild(s);
+    crumb(step.guess, i + 1, step.pattern);
+  });
+
+  const groups = [...groupBy(guess, words).entries()]
+    .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+  const expected = groups.reduce((sum, [p, g]) => sum + (p === ALL_GREEN ? 0 : g.length ** 2), 0) / words.length;
+  $("kv").innerHTML =
+    `<span>guess<b>${guess.toUpperCase()}</b></span>` +
+    `<span>possible<b>${fmt(words.length)}</b></span>` +
+    `<span>groups<b>${fmt(groups.length)}</b></span>` +
+    `<span>left on avg<b>${expected.toFixed(2)}</b></span>`;
+
+  const list = $("bars");
+  list.innerHTML = "";
+  const max = groups[0][1].length;
+  for (const [pattern, group] of showAll ? groups : groups.slice(0, PAGE)) {
+    const child = node.map[pattern];
+    const solved = pattern === ALL_GREEN;
+    const text = solved ? `solved: ${guess}` : group.length <= 3 ? group.join(" ") : `then ${guessAt(child)}`;
+    const descend = solved || typeof child === "string" ? null
+      : () => { path.push({ guess, pattern }); showAll = false; renderTree(); };
+    const row = barRow(mini(pattern), group.length / max, text, group.length, descend);
+    row.setAttribute("aria-label", `${pattern}: ${group.length} answer${group.length === 1 ? "" : "s"}`);
+    list.appendChild(row);
+  }
+  const more = $("more");
+  more.hidden = groups.length <= PAGE;
+  more.textContent = showAll ? "show fewer" : `show all ${groups.length} groups`;
+}
+
+// ---- results ----------------------------------------------------------------------------
+function renderDistribution() {
+  const max = Math.max(...Object.values(DISTRIBUTION));
+  const total = Object.values(DISTRIBUTION).reduce((a, b) => a + b, 0);
+  for (const [k, v] of Object.entries(DISTRIBUTION)) {
+    $("dist").appendChild(barRow(`${k} guesses`, v / max, `${((v / total) * 100).toFixed(1)}%`, v, null));
+  }
+}
+
+// ---- theme ------------------------------------------------------------------------------
+function store(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+function load(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+function setupToggles() {
+  const root = document.documentElement;
+  if (load("theme")) root.dataset.theme = load("theme");
+  if (load("contrast") === "high") { root.dataset.contrast = "high"; $("contrast").setAttribute("aria-pressed", "true"); }
+  $("theme").addEventListener("click", () => {
+    const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+    root.dataset.theme = dark ? "light" : "dark";
+    store("theme", root.dataset.theme);
+  });
+  $("contrast").addEventListener("click", () => {
+    const on = root.dataset.contrast !== "high";
+    if (on) root.dataset.contrast = "high"; else delete root.dataset.contrast;
+    $("contrast").setAttribute("aria-pressed", String(on));
+    store("contrast", on ? "high" : "normal");
+  });
+}
+
+async function main() {
+  setupToggles();
+  renderDistribution();
+  emptyBoard();
+  try {
+    const data = await (await fetch("tree.json")).json();
+    answers = data.answers;
+    answerSet = new Set(answers);
+    tree = data.tree;
+  } catch (e) {
+    $("bars").innerHTML = '<span class="after">couldn\'t load tree.json: serve this folder over http ' +
+      "(python3 -m http.server) instead of opening the file directly</span>";
+    return;
+  }
+  renderTree();
+  $("play-form").addEventListener("submit", (e) => { e.preventDefault(); startGame($("word").value); });
+  $("random").addEventListener("click", () => startGame(answers[Math.floor(Math.random() * answers.length)]));
+  $("more").addEventListener("click", () => { showAll = !showAll; renderTree(); });
+  $("follow-link").addEventListener("click", () => { path = lastPath.slice(); showAll = false; renderTree(); });
+  const fromUrl = location.hash.match(/^#play=([a-z]{5})$/);
+  startGame(fromUrl ? fromUrl[1] : "adorn", false);
+}
+main();
+</script>
+</body>
+</html>
