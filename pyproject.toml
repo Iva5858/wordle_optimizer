@@ -1,3 +1,31 @@
+[project]
+name = "wordle-optimizer"
+version = "1.0.0"
+description = "Optimal decision-tree Wordle solver and a bot that plays the NYT daily puzzle."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [{ name = "Isaac Vélez Aguirre" }]
+classifiers = ["Private :: Do Not Upload"]
+dependencies = [
+    "numpy>=1.24",
+    "selenium>=4.11",
+    "schedule>=1.2",
+]
+
+[project.urls]
+Repository = "https://github.com/Iva5858/wordle_optimizer"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]

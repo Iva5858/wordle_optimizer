@@ -3,16 +3,18 @@
 A node is {"guess": word, "map": {feedback: child}}, and a child that is a
 plain word means "guess this, it's the answer".
 """
+
 import json
 
 from .feedback import ALL_GREEN, feedback
 
 
 def guess_at(node) -> str:
+    """The guess a node makes."""
     return node if isinstance(node, str) else node["guess"]
 
 
-def follow(node, pattern: str):
+def follow(node, pattern: str) -> dict | str | None:
     """The subtree reached after getting `pattern`, or None if the tree doesn't cover it."""
     if isinstance(node, str) or pattern == ALL_GREEN:
         return None
@@ -31,13 +33,13 @@ def play(tree, answer: str) -> list[str]:
     raise ValueError(f"the tree doesn't cover {answer!r}")
 
 
-def save_tree(path, tree, answers, **info):
+def save_tree(path, tree, answers, **info) -> None:
     """Save a tree together with the answers it was built for, plus any extra info."""
     with open(path, "w") as f:
         json.dump({**info, "answers": answers, "tree": tree}, f, separators=(",", ":"))
 
 
-def load_tree(path):
+def load_tree(path) -> tuple[dict, list[str]]:
     """Return (tree, answers it covers)."""
     try:
         with open(path) as f:

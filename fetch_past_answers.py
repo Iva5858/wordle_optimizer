@@ -4,6 +4,7 @@
 
 Used by benchmark.py to measure the bot on real games.
 """
+
 import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
@@ -12,11 +13,11 @@ from urllib.request import Request, urlopen
 from wordle.data import PAST_ANSWERS_FILE
 
 FIRST_WORDLE = date(2021, 6, 19)
-API = "https://www.nytimes.com/svc/wordle/v2/{}.json"
+ANSWER_URL = "https://www.nytimes.com/svc/wordle/v2/{}.json"
 
 
 def answer_for(day: date):
-    request = Request(API.format(day.isoformat()), headers={"User-Agent": "Mozilla/5.0"})
+    request = Request(ANSWER_URL.format(day.isoformat()), headers={"User-Agent": "Mozilla/5.0"})
     try:
         with urlopen(request, timeout=15) as response:
             return json.load(response)["solution"].lower()
@@ -30,7 +31,8 @@ def main():
     with ThreadPoolExecutor(max_workers=8) as pool:
         answers = [a for a in pool.map(answer_for, days) if a]
     PAST_ANSWERS_FILE.write_text("".join(f"{a}\n" for a in answers))
-    print(f"Saved {len(answers)} answers to {PAST_ANSWERS_FILE.relative_to(PAST_ANSWERS_FILE.parent.parent)}")
+    shown = PAST_ANSWERS_FILE.relative_to(PAST_ANSWERS_FILE.parent.parent)
+    print(f"Saved {len(answers)} answers to {shown}")
 
 
 if __name__ == "__main__":

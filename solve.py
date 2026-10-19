@@ -4,6 +4,7 @@
     python solve.py --live                   # the tree the bot plays with
     python solve.py --start salet crane      # try specific opening words
     python solve.py --top-starts 20          # also try the 20 most promising openers
+    python solve.py --exact                  # prove the minimum for SALET (very slow)
 
 Two trees can be built:
 
@@ -13,14 +14,22 @@ Two trees can be built:
   --live    Also covers every answer NYT has used since, and allows every
             guess NYT accepts today. Writes words/live_tree.json.
 """
+
 import argparse
 import os
 import time
 
-from wordle.data import (CURRENT_GUESSES_FILE, LEADERBOARD_TREE_FILE, LIVE_TREE_FILE,
-                         ORIGINAL_GUESSES_FILE, RESULTS_DIR, load_answers, load_guesses,
-                         load_known_answers)
-from wordle.search import rank_openers, solve_openers
+from wordle.data import (
+    CURRENT_GUESSES_FILE,
+    LEADERBOARD_TREE_FILE,
+    LIVE_TREE_FILE,
+    ORIGINAL_GUESSES_FILE,
+    RESULTS_DIR,
+    load_answers,
+    load_guesses,
+    load_known_answers,
+)
+from wordle.search import EXACT, rank_openers, solve_openers
 from wordle.tree import play, save_tree
 
 LEADERBOARD_FILE = RESULTS_DIR / "leaderboard.txt"
@@ -33,14 +42,36 @@ def display(path) -> str:
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--live", action="store_true", help="build the tree the bot plays with")
-    parser.add_argument("--start", nargs="+", metavar="WORD", default=[],
-                        help="opening word(s) to try (default: salet, unless --top-starts is given)")
-    parser.add_argument("--top-starts", type=int, default=0, metavar="N",
-                        help="also try the N openers that look most promising before searching")
-    parser.add_argument("--width", type=float, default=10.0,
-                        help="search width: higher is slower but can find better trees (default: 10)")
+    parser.add_argument(
+        "--start",
+        nargs="+",
+        metavar="WORD",
+        default=[],
+        help="opening word(s) to try (default: salet, unless --top-starts is given)",
+    )
+    parser.add_argument(
+        "--top-starts",
+        type=int,
+        default=0,
+        metavar="N",
+        help="also try the N openers that look most promising before searching",
+    )
+    parser.add_argument(
+        "--width",
+        type=float,
+        default=10.0,
+        help="search width: higher is slower but can find better trees (default: 10)",
+    )
+    parser.add_argument(
+        "--exact",
+        action="store_true",
+        help="try every guess at every step, proving the result is the minimum "
+        "for each opener (very slow: expect hours or more)",
+    )
     parser.add_argument("--out", help="where to write the tree (default depends on --live)")
     args = parser.parse_args()
 
@@ -60,8 +91,12 @@ def main():
     if args.top_starts:
         openers += [w for w in rank_openers(guesses, answers, args.top_starts) if w not in openers]
     openers = openers or ["salet"]
-    print(f"Searching {len(openers)} opener(s) with {len(guesses)} guesses and {len(answers)} answers...")
-    strategies = solve_openers(guesses, answers, openers, width=args.width)
+    print(
+        f"Searching {len(openers)} opener(s) with {len(guesses)} guesses "
+        f"and {len(answers)} answers..."
+    )
+    width = EXACT if args.exact else args.width
+    strategies = solve_openers(guesses, answers, openers, width=width)
     elapsed = time.time() - started
 
     print(f"\n{'opener':<8}{'total':>7}{'average':>9}")
@@ -76,8 +111,17 @@ def main():
     distribution = {n: lengths.count(n) for n in sorted(set(lengths))}
     average = best.total_guesses / len(answers)
 
-    save_tree(out, best.tree, answers, opener=best.opener, total_guesses=best.total_guesses,
-              average=round(average, 4), max_guesses=max(lengths), width=args.width, seconds=round(elapsed, 1))
+    save_tree(
+        out,
+        best.tree,
+        answers,
+        opener=best.opener,
+        total_guesses=best.total_guesses,
+        average=round(average, 4),
+        max_guesses=max(lengths),
+        search="exact" if args.exact else f"width {args.width}",
+        seconds=round(elapsed, 1),
+    )
     written = [out]
     if not args.live:
         RESULTS_DIR.mkdir(exist_ok=True)
@@ -85,8 +129,10 @@ def main():
             f.writelines(",".join(games[answer]) + "\n" for answer in answers)
         written.append(LEADERBOARD_FILE)
 
-    print(f"\nBest: {best.opener.upper()}  average {average:.4f}, at most {max(lengths)} guesses, "
-          f"distribution {distribution}")
+    print(
+        f"\nBest: {best.opener.upper()}  average {average:.4f}, at most {max(lengths)} guesses, "
+        f"distribution {distribution}"
+    )
     print(f"Computation time: {elapsed:.1f}s")
     print(f"Wrote {' and '.join(display(p) for p in written)}")
 

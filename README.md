@@ -1,22 +1,41 @@
 # Wordle Optimizer
 
-A Wordle solver that searches for the strategy needing the fewest guesses, and
-a bot that uses it to play the daily New York Times puzzle in Chrome.
+A Wordle solver that searches for the decision tree needing the fewest guesses,
+and a bot that uses it to play the New York Times daily puzzle.
 
-On the original 2,315-answer list it averages **3.4212 guesses**, never needs
-more than 5, and never loses. That matches the best average known to be
-possible when opening with SALET. Finding the strategy takes about 6 seconds.
+[![tests](https://github.com/Iva5858/wordle_optimizer/actions/workflows/tests.yml/badge.svg)](https://github.com/Iva5858/wordle_optimizer/actions/workflows/tests.yml)
+![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+**Tied for first place on the [Wordle bot leaderboard](https://freshman.dev/wordle/leaderboard)**
+(entry `isaac_bot`): 7,920 total guesses over the 2,315 original answers, an
+average of 3.4212, never more than 5, opening with SALET. 7,920 is the proven
+minimum for normal mode with the original word lists
+([Bertsimas & Paskov, *An Exact Solution to Wordle*, Operations Research 2025](https://pubsonline.informs.org/doi/10.1287/opre.2022.0434)).
+24 entries share first place; none of the 942 entries is lower.
+
+## Results
+
+<img src="docs/board.png" alt="A solved Wordle board: SALET, BROND, ADORN" width="220" align="right">
 
 | | Games | Average | Distribution (2 / 3 / 4 / 5 / 6) | Losses |
 |---|---|---|---|---|
-| Original answer list | 2,315 | **3.4212** | 78 / 1,225 / 971 / 41 / 0 | 0 |
-| Every real NYT answer through Oct 2026 | 1,920 | 3.4593 | 58 / 992 / 803 / 59 / 6 | 2 |
+| Leaderboard tree, original answers | 2,315 | **3.4212** | 78 / 1,225 / 971 / 41 / 0 | 0 |
+| Daily bot, every real NYT answer through Oct 2026 | 1,920 | 3.4526 | 60 / 1,000 / 812 / 27 / 21 | 0 |
+| Daily bot, every word NYT accepts | 14,855 | 4.3904 | 105 / 2,337 / 5,632 / 5,206 / 1,571 | 3 |
 
-The real NYT answers include 69 words added after the original list. The bot
-handles those live (see [Playing a real game](#playing-a-real-game)), but they
-cost more guesses, and two of them (GOFER and MOMMY) were lost.
+- The leaderboard tree (7,920 guesses) is built in about 7 seconds with
+  `python solve.py` on an 18-core Mac.
+- Every one of the 14,855 words NYT accepts is a possible answer, so the last
+  row is the worst case: most of those words are obscure, which is why its
+  average is higher. The bot loses only JILLS, VILLS and ZILLS (and wins SALET
+  in one guess); checking all of them takes 144 s on 18 cores.
+
+<br clear="right">
 
 ## Quick start
+
+Requires Python 3.10+. Google Chrome is needed for the bot only.
 
 ```bash
 git clone https://github.com/Iva5858/wordle_optimizer.git
@@ -24,72 +43,65 @@ cd wordle_optimizer
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-python automated_wordle.py      # play today's Wordle (needs Google Chrome)
+python automated_wordle.py      # play today's Wordle in Chrome
 python assistant.py             # get suggestions while you play yourself
 ```
 
-The strategy (`words/solver_tree.json`) ships with the repo, so nothing needs
-to be computed first.
+The solved trees ship with the repo, so nothing needs to be computed first.
 
-## Scripts
+## Usage
 
-### `solve.py`: build the strategy
+`solve.py`, `automated_wordle.py` and `benchmark.py` list their options with `--help`.
 
-```bash
-python solve.py                               # open with SALET (default)
-python solve.py --start salet crane trace     # compare specific openers
-python solve.py --top-starts 20               # try the 20 most promising openers
-python solve.py --start salet --top-starts 10 --width 3
-```
+### `solve.py`: build a strategy
 
-All the openers are searched in parallel and the best one is kept. It writes:
-
-- `words/solver_tree.json`: the decision tree the bot plays from
-- `wordle_results/leaderboard.txt`: every guess for each answer, one line per
-  answer (`salet,brond,aback`), in the format Wordle bot leaderboards accept
-
-| Option | Default | |
+| Mode | Word lists | Writes |
 |---|---|---|
-| `--start WORD ...` | `salet` | opening words to try |
-| `--top-starts N` | 0 | also try the N openers that look best before searching |
-| `--width W` | 10 | how many guesses to consider at each step; higher is slower but can find better trees |
-| `--guesses FILE` | `words/original_guesses.txt` | allowed guesses |
+| default (leaderboard tree) | original 2,315 answers / 12,972 guesses | `words/leaderboard_tree.json` and `wordle_results/leaderboard.txt` |
+| `--live` (the tree the bot plays) | also every answer NYT has used, and every word NYT accepts today | `words/live_tree.json` |
+
+`leaderboard.txt` has one line per answer in the leaderboard's upload format
+(`salet,brond,aback`).
+
+| Flag | Default | |
+|---|---|---|
+| `--live` | off | build the live tree instead of the leaderboard tree |
+| `--start WORD ...` | `salet` | opening word(s) to try |
+| `--top-starts N` | 0 | also try the N openers that look most promising before searching |
+| `--width W` | 10 | search width: higher is slower but can find better trees |
+| `--exact` | off | try every guess at every step, proving the minimum for the chosen opener(s); not yet timed on the full lists, expect hours or more |
+| `--out FILE` | depends on `--live` | where to write the tree |
 
 ### `automated_wordle.py`: play the NYT puzzle
 
-```bash
-python automated_wordle.py                 # play once now
-python automated_wordle.py --daily 00:05   # keep running, play every day at 00:05
-python automated_wordle.py --show          # watch it play instead of running headless
-```
+| Flag | |
+|---|---|
+| `--daily HH:MM` | keep running and play every day at this time |
+| `--show` | show the browser window instead of running headless |
 
-It clicks through the welcome screen, ads and popups, plays the game, and saves
-a screenshot of the board after each guess to `wordle_results/screenshots/`.
-Each game is appended to `wordle_results/wordle_log.txt`:
+It clicks through cookie banners, ads and popups, plays the game, saves a
+screenshot of the board after each guess to `wordle_results/screenshots/`, and
+appends each game to `wordle_results/wordle_log.txt`:
 
 ```
 2026-10-18 00:00
-  1. SALET  01000  2315 -> 102 possible
-  2. BROND  01211  102 -> 1 possible
+  1. SALET  01000  2384 -> 105 possible
+  2. BROND  01211  105 -> 1 possible
   3. ADORN  22222  1 -> 1 possible
   Solved in 3
 ```
 
-Selenium downloads the matching chromedriver automatically; you only need
-Chrome installed.
-
 ### `assistant.py`: help while you play
 
-Suggests a word, then asks which word you played and the colors you got
-(`2` green, `1` yellow, `0` gray), and lists the remaining answers once there
-are 10 or fewer.
+Suggests a word, asks which word you played and the colors you got (`2` green,
+`1` yellow, `0` gray), and lists the remaining answers once there are 10 or fewer.
 
 ### `benchmark.py`: measure the bot
 
-```bash
-python benchmark.py                          # every real NYT answer so far
-python benchmark.py --words words/answers.txt
-```
+| Flag | Default | |
+|---|---|---|
+| `--words FILE` | `words/past_answers.txt` | answers to play |
+| `--tree FILE` | `words/live_tree.json` | strategy to play |
 
 ### `fetch_past_answers.py`: update the real answers
 
@@ -97,49 +109,49 @@ Downloads every NYT answer since the first Wordle into `words/past_answers.txt`.
 
 ## How it works
 
-### The cost of a strategy
-
-A strategy is a decision tree: a first guess, then for every possible color
-pattern, the next guess. Its quality is the total number of guesses it needs
-across all answers (the average is that total divided by 2,315).
-
-For a set *S* of answers that are still possible, choosing guess *g* costs
+A strategy is a decision tree: a guess, then for every feedback pattern, the
+next guess. For a set *S* of answers that are still possible, guess *g* costs
 
 ```
-cost(S, g) = |S| + Σ cost(B)   for each group B of S that g doesn't solve
+cost(S, g) = |S| + Σ cost(B)   over the feedback groups B of S that g doesn't solve
 ```
 
-Every answer in *S* spends this guess. The guess then splits *S* into groups
-by the colors it would get, and each group continues in its own subtree. The
-solver looks for the guess, at every node, that minimizes this cost.
+Every answer in *S* spends this guess, and each group continues in its own
+subtree. The answer list is fixed, so minimizing the total number of guesses is
+the same as minimizing the average.
 
-### Making the search fast
+### The search
 
-Trying every guess at every node is far too slow (12,972 guesses, nested
-several levels deep), so `wordle/search.py` uses:
+`wordle/search.py` runs a **depth-first branch-and-bound over an AND-OR tree**:
+at each node it takes the minimum over guesses (OR), and a guess's cost is the
+sum over its feedback outcomes (AND). Results are memoized per answer subset
+(dynamic programming), so a subset reached by different paths is solved once.
 
-- **A precomputed feedback matrix.** The colors for every guess against every
-  answer (30 million pairs) are computed once with numpy, in about a second,
-  and cached in `.cache/`.
-- **Exact shortcuts.** If a guess splits the remaining answers into single
-  words, no strategy can do better, so the search stops there.
-- **A beam.** Guesses are ranked by how small the groups they leave are, and
-  only the best few are searched (more when more answers remain). `--width`
-  scales this.
-- **Branch and bound.** Each group of *n* answers needs at least 2*n* − 1
-  guesses. A candidate is dropped as soon as its cost so far plus those lower
-  bounds can't beat the best guess found.
-- **Memoization and parallelism.** Solved groups are cached, and the subtrees
-  under the first guess are solved on all CPU cores.
+<details>
+<summary>What makes it fast</summary>
 
-The tests check the result against a brute-force search that tries every
-guess at every node, on small word sets where that's feasible.
+- **Precomputed feedback matrix.** The colors for every guess against every
+  answer are computed once with numpy and cached in `.cache/`.
+- **Exact shortcut.** A guess that splits *S* into single words is optimal:
+  2|S| − 1 guesses if it is one of the possible answers, 2|S| otherwise.
+- **Beam.** Guesses are ordered by the sum of their squared group sizes and
+  only the most promising are tried. `--width` scales how many; `--exact`
+  disables the beam.
+- **Admissible lower bound.** A group of *n* answers needs at least 2*n* − 1
+  guesses. A candidate is pruned as soon as its cost so far plus these bounds
+  can't beat the best guess found.
+- **Parallelism.** The subtrees under the opener are solved on all cores.
+
+It is not A\*: the answer is a whole policy tree, not a path. It is not
+alpha-beta either: feedback isn't an adversary, so outcomes are summed rather
+than minimaxed. The closest relatives are AO\* and depth-first
+branch-and-bound. The tests compare it against brute force on small word sets.
+
+</details>
 
 ### Choosing an opener
 
-`--top-starts` ranks openers by the same "smallest groups" score used inside
-the search. That ranking isn't the whole story. The words it likes best leave
-groups that are harder to finish, and SALET wins once everything is searched:
+`python solve.py --start salet --top-starts 10` (42 s):
 
 | Opener | Total | Average |
 |---|---|---|
@@ -150,72 +162,94 @@ groups that are harder to finish, and SALET wins once everything is searched:
 | RAISE | 8,015 | 3.4622 |
 | ARISE | 8,043 | 3.4743 |
 
-(`python solve.py --start salet --top-starts 10`, 42 seconds.)
+The pre-search ranking prefers SOARE and ROATE, but SALET wins after the full search.
 
-### Playing a real game
+### Two trees
 
-`wordle/player.py` follows the tree while the game stays on it. NYT has since
-added answers that aren't in the original list. When the colors rule out every
-original answer, the player switches to all currently allowed words that still
-fit, and runs the same search on those, live.
+The leaderboard tree uses the original lists so it can be compared with other
+solvers. NYT has since added answers that aren't in them; GOFER and MOMMY used
+to lose because the original tree didn't know them. The live tree also covers
+every answer NYT has used and allows every word NYT accepts today.
 
-## Word lists
+### The daily bot's safety check
+
+NYT's answer is always an allowed guess, so the bot (`wordle/player.py`) tracks
+every allowed word still consistent with the feedback, not just the tree's
+answers. From guess 2 on, it only plays a guess that still guarantees finding
+every one of them within 6.
+
+<details>
+<summary>Details and cost</summary>
+
+- Whether a set can be finished is searched with up to 4 guesses left and
+  assumed with 5 left. Playing all 14,855 words shows the assumption holds
+  everywhere except one -ILLS family (see [Limitations](#limitations)).
+- Cost: the average on real answers is 3.4526 instead of 3.4276 without the check.
+- Benefit: words the tree has never seen, like BIKER or CENTS, no longer lose.
+  Without the check, about 1.25% of unknown words lost in a 400-word sample.
+
+</details>
+
+## Word lists and data files
 
 | File | Words | |
 |---|---|---|
-| `words/answers.txt` | 2,315 | the original answer list |
-| `words/original_guesses.txt` | 10,657 | the original list of other allowed guesses (from [cfreshman's gist](https://gist.github.com/cfreshman/cdcdf777450c5b5301e439061d29694c)) |
-| `words/current_guesses.txt` | 14,855 | every guess NYT accepts today |
-| `words/past_answers.txt` | 1,947 | real NYT answers, in order |
+| `words/answers.txt` | 2,315 | the original answers |
+| `words/original_guesses.txt` | 10,657 | the original other allowed guesses (from [cfreshman's gist](https://gist.github.com/cfreshman/cdcdf777450c5b5301e439061d29694c)) |
+| `words/current_guesses.txt` | 14,855 | every word NYT accepts today |
+| `words/past_answers.txt` | 1,947 | NYT answers in order (1,920 unique; NYT now reuses some) |
+| `words/leaderboard_tree.json` | | generated by `solve.py` |
+| `words/live_tree.json` | | generated by `solve.py --live` |
 
-The strategy uses only the original lists, so its results can be compared with
-other solvers and submitted to leaderboards. Allowing the newer guesses as well
-(`--guesses words/current_guesses.txt`) gets the average down to 3.4199, but
-uses words other solvers and leaderboards don't accept.
+Both trees are committed so the bot runs immediately. Allowing the newer
+guesses for the leaderboard tree would give 3.4199, but the leaderboard doesn't
+accept those words.
 
 ## Project structure
 
 ```
 wordle_optimizer/
-├── solve.py                  # build the strategy
-├── automated_wordle.py       # play the NYT puzzle in Chrome
-├── assistant.py              # suggestions while you play
-├── benchmark.py              # measure the bot on a list of answers
-├── fetch_past_answers.py     # download real NYT answers
+├── solve.py                # build a strategy tree
+├── automated_wordle.py     # play the NYT puzzle in Chrome
+├── assistant.py            # suggestions while you play
+├── benchmark.py            # measure the bot on a list of answers
+├── fetch_past_answers.py   # download real NYT answers
 ├── wordle/
-│   ├── feedback.py           # the colors a guess gets, one at a time or as a matrix
-│   ├── search.py             # the tree search
-│   ├── tree.py               # saving, loading and following trees
-│   ├── player.py             # picking guesses during a live game
-│   └── data.py               # word lists and file locations
-├── words/                    # word lists and the solved tree
-└── tests/
+│   ├── data.py             # word lists and file locations
+│   ├── feedback.py         # the colors a guess gets, one at a time or as a matrix
+│   ├── search.py           # the tree search
+│   ├── tree.py             # saving, loading and following trees
+│   └── player.py           # picking guesses in a live game
+├── words/                  # word lists and the solved trees
+├── docs/                   # README images
+└── tests/                  # pytest suite
 ```
 
-## Tests
+## Development
 
 ```bash
-python -m pytest
+pip install pytest ruff     # or: pip install --group dev (pip >= 25.1), or: uv sync
+python -m pytest            # about 90 s; builds a ~220 MB matrix cache in .cache/
+ruff check .
+ruff format .
 ```
 
 ## Limitations
 
-- **Newer NYT answers.** The tree only covers the original 2,315 answers, so
-  newer ones cost extra guesses. Including `past_answers.txt` in the answer
-  list the tree is built for would fix most of this.
-- **The opener is chosen, not proven.** The search is exhaustive enough to
-  match the best known result for SALET, but with a limited beam it can't prove
-  no tree does better.
-- **Hard mode** (reusing every revealed letter) isn't supported.
-- **NYT page changes.** The bot finds the board and buttons by their current
-  HTML. If NYT redesigns the page, the selectors at the top of
-  `automated_wordle.py` need updating.
+- **JILLS, VILLS, ZILLS.** An -ILLS family can't be guaranteed after SALET.
+  No NYT answer has ever ended in -LLS.
+- **The safety check costs** about 0.025 guesses per game.
+- **Hard mode** isn't supported.
+- **NYT page changes.** A redesign can break the selectors at the top of
+  `automated_wordle.py`.
 
 ## Acknowledgements
 
-The best average for a SALET opener, 3.4212, was established by
-[Jonathan Olson](https://jonathanolson.net/experiments/optimal-wordle-solutions).
-This project's search was written independently and reaches the same total.
+- Dimitris Bertsimas and Alex Paskov, for proving 7,920 is the minimum.
+- [Jonathan Olson](https://jonathanolson.net/experiments/optimal-wordle-solutions),
+  whose independent optimal results served as a benchmark. This project's
+  search was written independently.
+- [cfreshman](https://freshman.dev/wordle/leaderboard), for publishing the original word lists and running the leaderboard.
 
 ## License
 

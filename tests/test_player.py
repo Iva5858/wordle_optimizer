@@ -1,6 +1,6 @@
 import pytest
 
-from wordle.data import CURRENT_GUESSES_FILE, TREE_FILE, load_answers, load_guesses
+from wordle.data import CURRENT_GUESSES_FILE, LIVE_TREE_FILE, load_guesses
 from wordle.feedback import feedback
 from wordle.player import Player
 from wordle.tree import load_tree
@@ -8,7 +8,7 @@ from wordle.tree import load_tree
 
 @pytest.fixture(scope="module")
 def files():
-    return load_tree(TREE_FILE), load_answers(), load_guesses(CURRENT_GUESSES_FILE)
+    return (*load_tree(LIVE_TREE_FILE), load_guesses(CURRENT_GUESSES_FILE))
 
 
 def play(files, answer):
@@ -21,13 +21,14 @@ def play(files, answer):
     return None
 
 
-def test_solves_every_original_answer(files):
+def test_solves_every_known_answer(files):
     results = [play(files, a) for a in files[1]]
     assert None not in results
-    assert sum(results) / len(results) < 3.43
+    assert sum(results) / len(results) < 3.46  # 3.4535 with the safety check
 
 
-@pytest.mark.parametrize("answer", ["snafu", "guano", "kazoo", "uvula"])
+# Words the tree has never seen; CENTS and BACKS used to lose before the safety check
+@pytest.mark.parametrize("answer", ["biker", "cents", "dozed", "backs"])
 def test_solves_answers_outside_the_tree(files, answer):
     assert answer not in files[1]
     assert play(files, answer) is not None

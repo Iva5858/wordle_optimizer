@@ -7,6 +7,7 @@
 Screenshots go to wordle_results/screenshots/<date>/ and a summary of each
 game is appended to wordle_results/wordle_log.txt.
 """
+
 import argparse
 import time
 from datetime import datetime
@@ -29,11 +30,19 @@ TILE_COLORS = {"correct": "2", "present": "1", "absent": "0"}
 
 # What can stand between page load and the board, dismissed in whatever order it shows up
 OBSTACLES = [
-    ("cookie banner", By.XPATH, "//button[normalize-space()='Accept all' or normalize-space()='Accept All']"),
+    (
+        "cookie banner",
+        By.XPATH,
+        "//button[normalize-space()='Accept all' or normalize-space()='Accept All']",
+    ),
     ("terms prompt", By.XPATH, "//button[normalize-space()='Continue']"),
     ("welcome screen", By.CSS_SELECTOR, 'button[data-testid="Play"]'),
     ("ad", By.CSS_SELECTOR, 'button[class*="skipButton"]'),
-    ("popup", By.CSS_SELECTOR, '[data-testid="modal-overlay"] [data-testid="icon-close"], button[aria-label="Close"]'),
+    (
+        "popup",
+        By.CSS_SELECTOR,
+        '[data-testid="modal-overlay"] [data-testid="icon-close"], button[aria-label="Close"]',
+    ),
 ]
 
 
@@ -131,7 +140,9 @@ def play_today(headless: bool = True):
                 break
             player.record(guess, pattern)
             screenshot(driver, f"guess_{turn}.png")
-            report(f"{turn}. {guess.upper()}  {pattern}  {before} -> {len(player.candidates)} possible")
+            report(
+                f"{turn}. {guess.upper()}  {pattern}  {before} -> {len(player.candidates)} possible"
+            )
             if player.solved:
                 break
 
@@ -140,12 +151,18 @@ def play_today(headless: bool = True):
         driver.quit()
         RESULTS_DIR.mkdir(exist_ok=True)
         with open(RESULTS_DIR / "wordle_log.txt", "a", encoding="utf-8") as log:
-            log.write(f"\n{datetime.now():%Y-%m-%d %H:%M}\n" + "".join(f"  {line}\n" for line in lines))
+            log.write(
+                f"\n{datetime.now():%Y-%m-%d %H:%M}\n" + "".join(f"  {line}\n" for line in lines)
+            )
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--daily", metavar="HH:MM", help="keep running and play every day at this time")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--daily", metavar="HH:MM", help="keep running and play every day at this time"
+    )
     parser.add_argument("--show", action="store_true", help="show the browser window")
     args = parser.parse_args()
 

@@ -6,14 +6,17 @@ from wordle.data import load_answers, load_guesses
 from wordle.feedback import code_to_pattern, feedback, feedback_matrix
 
 
-@pytest.mark.parametrize("guess, answer, expected", [
-    ("crane", "crane", "22222"),
-    ("salet", "funky", "00000"),
-    ("speed", "abide", "00101"),  # only one E is yellow: ABIDE has a single E
-    ("geese", "eagle", "11002"),  # the green E uses up one of EAGLE's two E's
-    ("lolly", "allow", "11200"),  # ALLOW has two L's: one green, one yellow, the third gray
-    ("eerie", "cheer", "11100"),
-])
+@pytest.mark.parametrize(
+    "guess, answer, expected",
+    [
+        ("crane", "crane", "22222"),
+        ("salet", "funky", "00000"),
+        ("speed", "abide", "00101"),  # only one E is yellow: ABIDE has a single E
+        ("geese", "eagle", "11002"),  # the green E uses up one of EAGLE's two E's
+        ("lolly", "allow", "11200"),  # ALLOW has two L's: one green, one yellow, the third gray
+        ("eerie", "cheer", "11100"),
+    ],
+)
 def test_feedback(guess, answer, expected):
     assert feedback(guess, answer) == expected
 
